@@ -1,0 +1,30 @@
+#!/bin/bash
+#SBATCH -J PVVIZ # 8-character name
+#SBATCH -o slog # output and error file name (%j expands to jobID)
+#SBATCH -e serr
+#SBATCH -N 6 # total number of nodes
+#SBATCH -n 25 # total number of mpi tasks requested
+#SBATCH -p icx # queue (partition) -- normal, development, etc.
+#SBATCH -t 01:00:00 # run time (hh:mm:ss)
+#SBATCH -A CTS24014 # Project number
+##SBATCH -A OTH21032 # Project number
+
+#SBATCH --mail-user=akshit@utexas.edu
+#SBATCH --mail-type=all     # email me when the job finishes
+
+export PATH=/work2/01249/gda/stampede3/python3.10/bin:$PATH
+# export PYTHONPATH=/home1/08302/akshit06/ParaView-5.12.0-osmesa-MPI-Linux-Python3.10-x86_64/lib/python3.10/site-packages:$PYTHONPATH
+# export PYTHONPATH=/home1/08302/akshit06/ParaView-5.11.1-osmesa-MPI-Linux-Python3.9-x86_64/lib/python3.9/site-packages:$PYTHONPATH
+export PYTHONPATH=/opt/apps/paraview-osmesa/5.12.0/lib/python3.10/site-packages:$PYTHONPATH
+
+
+#ibrun python plot_tbl_main.py --parallel --data 'flat_plate.nek5000' --output 'frames/+ve_u/frame' --clip --iso-u --animate --view 1
+#mpirun -np 50 python plot_tbl_main.py --data 'flat_plate.nek5000' --output 'frames/+ve_u/frame' --timestep 50 --clip --iso-u --view 1
+# mpirun -np 8 python3 plot_tbl_main_volume.py --parallel --data 'NACA.nek5000' --output 'frames/frame' --animate --iso-u --view 1
+# mpirun -np 1 python plot_tbl_main_volume.py --data 'NACA.nek5000' --output 'frames/frame' --iso-u  --timestep 1 --view 1
+#ibrun python write_csv.py --parallel --data 'flat_plate.nek5000' --output 'x=50mm/x_50_mm' --slice1 --animate --view 1
+#ibrun python plot_tbl_main.py --parallel --data 'flat_plate.nek5000' --output 'frames/q_criterion_front_view' --animate --view 3 > log
+# ibrun python3 plot_tbl_main_2.py > PV.log
+mpirun -np 15 python3 plot_tbl_main_2.py
+# mpirun -np 15 python3 plot_tbl_main_2.py > PV.log
+# mpirun -np 20 pvbatch pvbatch_test.py

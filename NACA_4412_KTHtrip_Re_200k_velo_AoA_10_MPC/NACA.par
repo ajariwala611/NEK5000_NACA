@@ -1,0 +1,117 @@
+#
+# nek parameter file
+#
+[GENERAL]
+startFrom = NACA0.restart UP
+stopAt = endTime
+endTime = 40.0
+
+dt = 1.0e-4 # 0.005
+timeStepper = BDF2
+extrapolation = OIFS
+variableDT = no
+targetCFL = 3.0
+
+writeControl = runTime # timeStep
+writeInterval = 1
+writeDoublePrecision = no
+
+filtering = hpfrt
+filterModes = 2
+filterWeight = 5
+#filterCutoffRatio = 0.9
+
+userParam01 = 5    # xstart: location of inlet along the boundary layer
+userParam02 = 1.0   # Freestream velocity.
+userParam03 = 50    # Proportional gain for immersed boundary forces.
+userParam04 = 50    # Integral gain for immersed boundary forces.
+userParam05 = 5.0  # Start time for averaging
+userParam06 = 1.0   # Output frequency for statistics
+userParam07 = 1.0   # x-location of 1D line of statistics
+userParam08 = 1.25  # z-location of 1D line of statistics
+userParam09 = 0.07  # roughness max height
+userParam10 = 10     # every how many steps to update roughness
+userParam11 = 3     # number of elements in Z
+
+[PROBLEMTYPE]
+equation = incompNS
+
+[VELOCITY]
+density = 1
+viscosity = -200000.0  # A negative value sets 1/nu
+residualTol = 1.e-6
+# writeToFieldFile = no
+
+[PRESSURE]
+residualProj = yes
+residualTol = 1.e-4
+# writeToFieldFile = no
+
+[TEMPERATURE]
+solver = none
+
+[SCALAR01] # fluctuations in x (after time userParam05)
+solver = none
+
+[SCALAR02] # fluctuations in y (after time userParam05)
+solver = none
+
+# [SCALAR03] # fluctuations in z (after time userParam05)
+# solver = none
+
+# [SCALAR04] # fluctuations in x (after time userParam05)
+# solver = none
+
+# [SCALAR05]
+# solver = none
+
+# [SCALAR06]
+# solver = none
+
+# [SCALAR07]
+# solver = none
+
+# [SCALAR08]
+# solver = none
+[_TRIPL]             # Runtime paramere section for tripping module
+NLINE                = 1                      # Number of tripping lines
+TIAMP01              = 0.00000000E+00         # Time independent amplitude
+TDAMP01              = 1.500000E+01         # Time dependent amplitude
+SPOSX01              = 0.10000000E+00         # Starting pont X
+SPOSY01              = 0.06650000E+00         # Starting pont Y
+SPOSZ01              = 0.00000000E+00         # Starting pont Z
+EPOSX01              = 0.10000000E+00         # Ending pont X
+EPOSY01              = 0.06650000E+00         # Ending pont Y
+EPOSZ01              = 0.05000000E+00         # Ending pont Z
+SMTHX01              = 0.005000E+00         # Smoothing length X
+SMTHY01              = 0.0020000E+00         # Smoothing length Y
+SMTHZ01              = 0.0020000E+00         # Smoothing length Z
+LEXT01               = yes                    # Line extension
+ROTA01               = 0.31416        # Rotation angle in radians
+NMODE01		         = 64		              # Number of Fourier modes
+TDT01		         = 0.0050000E+00	      # Time step for tripping
+# TIAMP02              = 0.00000000E+00         # Time independent amplitude
+# TDAMP02              = 1.00000000E+01         # Time dependent amplitude
+# SPOSX02              = 0.20000000E+00         # Starting pont X
+# SPOSY02              = 0.0880E+00         # Starting pont Y
+# SPOSZ02              = 0.00000000E+00         # Starting pont Z
+# EPOSX02              = 0.20000000E+00         # Ending pont X
+# EPOSY02              = 0.0880E+00         # Ending pont Y
+# EPOSZ02              = 0.05000000E+00         # Ending pont Z
+# SMTHX02              = 0.00500E+00         # Smoothing length X
+# SMTHY02              = 0.00200000E+00         # Smoothing length Y
+# SMTHZ02              = 0.0020000E+00         # Smoothing length Z
+# LEXT02               = yes                     # Line extension
+# ROTA02               = 0.14         # Rotation angle in radians
+# NMODE02		         = 64		      # Number of Fourier modes
+# TDT02		         = 0.005000E+00	      # Time step for tripping
+
+[_CHKPT]
+readchkpt = no
+chkpFnumber = 2
+chkpInterval = 1000
+
+[_STAT]             # Runtime parameter section for statistics module
+AVSTEP               = 10 # The frequency, in time-steps, at which the solution is sampled
+SKSTEP               = 10 # Skipped initial steps
+IOSTEP               = 20000 # The output frequency, in time-steps, which also defines the averaging window

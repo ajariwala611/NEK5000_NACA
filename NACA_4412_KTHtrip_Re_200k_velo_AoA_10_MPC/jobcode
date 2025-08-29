@@ -1,0 +1,23 @@
+#!/bin/bash
+#SBATCH -J MPCLSM # 8-character name
+#SBATCH -o slog # output and error file name (%j expands to jobID)
+#SBATCH -e serr
+#SBATCH -N 19 # total number of nodes
+#SBATCH -n 2048 # total number of mpi tasks requested
+#SBATCH -p spr # queue (partition) -- normal, development, etc.
+#SBATCH -t 06:00:00 # run time (hh:mm:ss)
+#SBATCH -A CTS24014 # Project number
+##SBATCH -A OTH21032 # Project number
+
+#SBATCH --mail-user=akshit@utexas.edu
+#SBATCH --mail-type=all     # email me when the job finishes
+
+module load python
+echo NACA        >  SESSION.NAME
+echo `pwd`'/' >>  SESSION.NAME
+rm -f logfile
+rm -f ioinfo
+mv NACA.log NACA.log1 2>/dev/null
+touch NACA.log
+ln -sf NACA.log logfile
+ibrun ./nek5000 > NACA.log

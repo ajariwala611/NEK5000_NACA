@@ -1,0 +1,946 @@
+!-----------------------------------------------------------------------
+!  nek5000 user-file template
+!
+!  user specified routines:
+!     - uservp  : variable properties
+!     - userf   : local acceleration term for fluid
+!     - userq   : local source term for scalars
+!     - userbc  : boundary conditions
+!     - useric  : initial conditions
+!     - userchk : general purpose routine for checking errors etc.
+!     - userqtl : thermal divergence for lowMach number flows 
+!     - usrdat  : modify element vertices 
+!     - usrdat2 : modify mesh coordinates
+!     - usrdat3 : general purpose routine for initialization
+!     
+!-----------------------------------------------------------------------
+!   nek5000 constants
+!
+#define tSTATSTART uparam(5) /* start time for averaging */
+#define tSTATFREQ  uparam(6) /* output frequency for statistics */ 
+#define INTP_NMAX 44541
+#define NARRAYS 2 
+!
+!-----------------------------------------------------------------------
+      subroutine uservp(ix,iy,iz,eg) ! set variable properties
+
+!      implicit none
+
+      integer ix,iy,iz,eg
+     
+      include 'SIZE'
+      include 'TOTAL'
+      include 'NEKUSE'
+
+      integer e
+!     e = gllel(eg)
+
+      udiff  = 0.0
+      utrans = 0.0
+
+      return
+      end
+!-----------------------------------------------------------------------
+	subroutine userf(ix,iy,iz,eg) ! set acceleration term
+!
+!         Note: this is an acceleration term, NOT a force!
+!         Thus, ffx will subsequently be multiplied by rho(x,t).
+!
+!         Note: This function will be used to implemend immersed boundary forces.
+!         Assumes constant rho = 1
+
+          	implicit none
+		include 'SIZE'
+          	include 'TOTAL'
+          	include 'NEKUSE'
+
+          	integer ix,iy,iz,eg,e
+          	real pgain, igain
+
+		e = gllel(eg)
+		ffx = 0.0
+		ffy = 0.0
+		ffz = 0.0
+
+	!     tripping
+		call tripl_forcing(ffx,ffy,ffz,ix,iy,iz,eg) 
+		!     t(ix,iy,iz,e,2) = ffx
+		call gamma_jet(ix,iy,iz,eg)
+		!     t(ix,iy,iz,e,3) = ffy
+      end
+!-----------------------------------------------------------------------
+      subroutine userq(ix,iy,iz,eg) ! set source term
+
+!          implicit none
+
+          integer ix,iy,iz,eg
+
+          include 'SIZE'
+          include 'TOTAL'
+          include 'NEKUSE'
+
+          integer e
+!         e = gllel(eg)
+
+          qvol   = 0.0
+
+          return
+      end
+!-----------------------------------------------------------------------
+      subroutine userbc(ix,iy,iz,iside,eg) ! set up boundary conditions
+!
+!         NOTE ::: This subroutine MAY NOT be called by every process
+!         
+          implicit none
+
+          integer ix,iy,iz,iside,eg,e
+
+          include 'SIZE'
+          include 'TOTAL'
+          include 'NEKUSE'
+
+          if (cbu .eq. 'v  ') then
+            ux = 1.0 * dcos(10.0*pi/180)
+            uy = 1.0 * dsin(10.0*pi/180)
+            uz = 0.0
+            temp = 0.0
+          end if
+
+          return
+      end
+!-----------------------------------------------------------------------
+      subroutine useric(ix,iy,iz,eg) ! set up initial conditions
+
+          implicit none
+
+          integer ix,iy,iz,eg,e
+
+          include 'SIZE'
+          include 'TOTAL'
+          include 'NEKUSE'
+
+          real ub(lx1,ly1,lz1,lelt), vb(lx1,ly1,lz1,lelt)
+          common /blasiusvel/ ub, vb
+
+          e = gllel(eg)
+      !     ux = 1.0
+      !     uy = 0.0
+          ux = 1.0 * dcos(10.0*pi/180)
+          uy = 1.0 * dsin(10.0*pi/180)
+          uz = 0.0
+          temp = 0.0
+
+          return
+      end
+!-----------------------------------------------------------------------
+      subroutine userchk
+          implicit none
+          include 'SIZE'
+          include 'TOTAL'
+
+
+          integer icalld
+          save    icalld
+          data    icalld /0/
+
+          real atime,timel
+          save atime,timel
+
+          real dtime, beta, alpha
+
+          integer ntdump
+          save    ntdump
+
+          logical iffpts
+          save iffpts
+
+          ! Forces
+          real scle
+          real x0(3)
+          save x0
+          data x0 /3*0/
+
+          integer ,parameter :: nstat=7
+          real ravg(lx1*ly1*lz1*lelt,nstat)
+          real uu(lx1*ly1*lz1*lelt), uv(lx1*ly1*lz1*lelt), ww(lx1*ly1*lz1*lelt), vv(lx1*ly1*lz1*lelt)
+          real stat(lx1*ly1*lz1*lelt,nstat)
+          save ravg, stat
+
+          integer n,npart
+          real xtmp
+
+          logical ifverbose
+      !     real ymin, ymax
+
+          ! Useful constants
+      !     n = nelv * 2**ldim
+      !     ymin = glmin(yc,n)
+      !     ymax = glmax(yc,n)
+ 
+          n     = nx1*ny1*nz1*nelv
+          !     start framework
+          if (ISTEP.eq.0) call frame_start
+
+      !     monitor simulation
+            call frame_monitor
+      
+      !     save/load files for full-restart
+            call chkpt_main
+      
+      !     for tripping
+            call tripl_update
+
+      !     collect statistics
+            call stat_avg
+
+            ! if ( nid .eq. 0 ) then
+            !       npart = INTP_NMAX
+            !     else
+            !       npart = 0
+            ! end if
+      
+          ! ***********************
+          ! Compute statistics
+          ! ***********************
+          if (time .ge. tSTATSTART) then
+              if (icalld .eq. 0) then
+                  if(nid .eq. 0) write(6,*) 'Collecting statistics ...'
+
+                  call rzero(ravg,size(ravg))
+
+                  atime  = 0
+                  timel  = time
+                  ntdump = int(time/tSTATFREQ)
+                  icalld = 1
+              endif
+
+              dtime = time - timel
+              atime = atime + dtime
+
+              ! averaging over time
+              if (atime .ne. 0. .and. dtime .ne. 0.) then
+                  beta  = dtime / atime
+                  alpha = 1. - beta
+                  ifverbose = .false.
+                  call avg1(ravg(1,1),vx   ,alpha,beta,n,'uavg',ifverbose)
+                  call avg1(ravg(1,2),vy   ,alpha,beta,n,'vavg',ifverbose)
+                  call avg1(ravg(1,3),vz   ,alpha,beta,n,'wavg',ifverbose)
+                  call avg2(ravg(1,4),vx   ,alpha,beta,n,'urms',ifverbose)
+                  call avg2(ravg(1,5),vy   ,alpha,beta,n,'vrms',ifverbose)
+                  call avg2(ravg(1,6),vz   ,alpha,beta,n,'wrms',ifverbose)
+                  call avg3(ravg(1,7),vx,vy,alpha,beta,n,'uvmm',ifverbose)
+              end if
+
+              timel = time
+
+          end if
+
+          call control_LSMs(ravg(1,1))
+
+          ! ***********************
+          ! Save additional fields
+          ! ***********************
+          if (ifoutfld) then
+              ! Output orthogonal grid
+!             ifreguo = .true.
+
+!              ifto = .true.
+            !  call lambda2(t(1,1,1,1,1)) ! Put lambda2 into temperature field
+
+              ! Save vorticity
+            ! call comp_vort3(vort, w1, w2, vx, vy, vz)
+            ! call copy(t(1,1,1,1,5),vort(1,1),n) ! vorticity x
+            ! call copy(t(1,1,1,1,6),vort(1,2),n) ! vorticity y
+            ! call copy(t(1,1,1,1,7),vort(1,3),n) ! vorticity z
+
+            ! Save velocity fluctuations profile
+            call sub3(t(1,1,1,1,2),vx,ravg(1,1),n) ! u - u_mean
+            call sub3(t(1,1,1,1,3),vy,ravg(1,2),n) ! v - v_mean
+            ! call sub3(t(1,1,1,1,4),vz,ravg(1,3),n) ! w - w_mean
+        !     do i = 1, n
+        !         uu(i) = ravg(i,1)**2
+        !         vv(i) = ravg(i,2)**2
+        !         ww(i) = ravg(i,3)**2
+        !         uv(i) = ravg(i,1)*ravg(i,2)
+        !     end do
+        !     call sub3(t(1,1,1,1,5),ravg(1,4),uu(1),n) !<U^2> - <U>^2
+        !     call sub3(t(1,1,1,1,6),ravg(1,5),vv(1),n) !<V^2> - <V>^2
+        !     call sub3(t(1,1,1,1,7),ravg(1,6),ww(1),n) !<W^2> - <W>^2
+        !     call sub3(t(1,1,1,1,8),ravg(1,7),uv(1),n) !<UV> - <U><V>
+        !     call copy(t(1,1,1,1,9),ravg(1,1),n) ! Saving time averaged U velocity <U>         
+            
+          end if
+
+          if (istep.eq.0) call set_obj  ! define objects for surface integrals
+          scle = 1  ! Cd = F/(.5 rho U^2 ) = 2*F, output drag and lift if scale=1 if = 2 then its Cd and Cl
+          call torque_calc(scle,x0,.true.,.false.)
+          write(10, '(3E14.6)') dragx(1),dragpx(1),dragvx(1)
+          write(11, '(3E14.6)') dragy(1),dragpy(1),dragvy(1)
+
+        !     finalise framework
+          if (ISTEP.eq.NSTEPS.or.LASTEP.eq.1) then
+            call frame_end
+            close(10)
+            close(11)
+            close(99)
+          endif
+          return
+      end
+!-----------------------------------------------------------------------
+      subroutine userqtl ! Set thermal divergence
+
+      call userqtl_scig 
+
+      return
+      end
+!-----------------------------------------------------------------------
+      subroutine usrdat()   ! This routine to modify element vertices
+
+!      implicit none
+
+      include 'SIZE'
+      include 'TOTAL'
+
+      return
+      end
+!-----------------------------------------------------------------------
+      subroutine usrdat2()  ! This routine to modify mesh coordinates
+
+!         implicit none
+
+          include 'SIZE'
+          include 'TOTAL'
+
+        ! clustered           
+        !   ID =   1  name: ws.Interblock     
+        !   ID =   2  name: surface_3         
+        !   ID =   3  name: foil              
+        !   ID =   4  name: surface_7         
+        !   ID =   5  name: inlet             
+        !   ID =   6  name: outlet            
+        !   ID =   7  name: bottom            
+        !   ID =   8  name: top               
+        !   ID =   9  name: right             
+        !   ID =  10  name: left  
+          
+          call setbc(1,1,'E  ') ! internal
+          call setbc(2,1,'E  ') ! int
+          call setbc(3,1,'W  ') ! foil
+          call setbc(4,1,'E  ') ! int
+          call setbc(5,1,'v  ') ! inlet
+          call setbc(6,1,'O  ') ! out
+          call setbc(7,1,'v  ') ! bottom
+          call setbc(8,1,'O  ') ! top
+          return
+      end
+!-----------------------------------------------------------------------
+      subroutine usrdat3()
+
+          implicit none
+
+          include 'SIZE'
+          include 'TOTAL'
+          integer i,ios
+
+          real p_loc(INTP_NMAX,ldim),  uvw(INTP_NMAX,NARRAYS)
+	    common /LSMS/ p_loc,uvw
+
+          open(100, file='NACA.his',status='old',action='read')
+          read(100,*)
+          do i = 1, INTP_NMAX
+              read(100,*)p_loc(i,:)
+          end do
+          close(100)
+      !     p_loc_trans = transpose(p_loc)
+          !   Read jet signal from a file
+      !     call read_jet_signal()
+        ! Open the file "drag.dat" for writing (append mode)
+          open(unit=10, file='drag.txt', status='unknown', action='write')
+          open(unit=11, file='lift.txt', status='unknown', action='write')
+          open(unit=99, file='jet_input.txt', status="unknown", action="write", iostat=ios)
+            if (ios /= 0) then
+                  print *, "Error opening jet_input file"
+                  stop
+            end if
+          return
+      end
+!-----------------------------------------------------------------------
+      subroutine read_jet_signal()
+
+            implicit none
+  
+            integer i  
+            ! real jet_input(25000)
+            ! integer jet_nsteps
+            ! common /gaussian_jet_data/ jet_input, jet_nsteps
+          ! Read jet_input.dat file, Akshit 10/14/2021
+            ! open(106, file='jet_input.dat', status='old')
+            ! read(106,*) jet_nsteps
+            ! do i = 1, jet_nsteps
+            !   read(106,*) jet_input(i)
+            ! end do 
+            ! close(106)
+  
+      end subroutine
+!-----------------------------------------------------------------------
+      subroutine gamma_jet(ix,iy,iz,eg)
+          
+            implicit none
+		include 'SIZE'
+            include 'TOTAL'
+            include 'NEKUSE'
+
+            integer ix,iy,iz,eg
+            real pgain, igain
+  
+            real jet_gain, jet_xc, jet_yc, jet_zc, jet_ax, jet_ay, jet_az
+            real jet_scale
+            real xp, yp, zp
+            real pitch
+  
+            ! real jet_input(25000)
+            ! integer jet_nsteps
+            ! common /gaussian_jet_data/ jet_input, jet_nsteps
+
+		real p_loc(INTP_NMAX,ldim),uvw(INTP_NMAX,NARRAYS)  
+          	common /LSMS/ p_loc,uvw
+
+		real u_optimal(100),jet_input
+		common /control_inputs/ u_optimal,jet_input
+
+            real thta, xpr,ypr,zpr
+            integer e
+            e = gllel(eg)
+  
+            xp = xm1(ix,iy,iz,e)
+            yp = ym1(ix,iy,iz,e)
+            zp = zm1(ix,iy,iz,e)
+            thta = 0.192
+            ! Compute jet force
+            jet_xc = 0.6
+            jet_yc = 0.081
+            jet_zc = 0.025
+            jet_ax = 0.02   ! Length is about 5xjet_ax ~ magnitude > 0.01
+            jet_ay = 0.01    ! Height is about 3xjet_ay ~ magnitude > 0.01
+            jet_az = 0.00625 ! Width is about 4xjet_az ~ magnitude > 0.01
+            jet_scale = 5.0 
+            xp = jet_xc + (xp-jet_xc)*cos(thta)-(yp-jet_yc)*sin(thta)
+            yp = jet_yc + (xp-jet_xc)*sin(thta)+(yp-jet_yc)*cos(thta)
+            zp = zp
+            jet_gain = (xp-jet_xc)/jet_ax*exp(1.-(xp-jet_xc)/jet_ax)*exp(-0.5 *((yp-jet_yc)**2/jet_ay**2+(zp-jet_zc)**2/jet_az**2))
+            pitch = -45.0
+            ! jet_nsteps = 1 ! Setting some default value, remove ths when jet is on
+            ! if (ifoutfld) t(ix,iy,iz,e,1) = jet_gain
+            if (jet_gain >= 0.01 ) then
+                if ( yp >= -0.2*xp + 0.2 ) then ! To apply forces only on top surface very crude way 
+                    ffx = dcosd(pitch) * jet_scale * jet_input * jet_gain
+                    ffy = dsind(pitch) * jet_scale * jet_input * jet_gain
+                  !   ffx = 0.0
+                  !   ffy = 0.0
+                    ffz = 0.0
+                    t(ix,iy,iz,e,1) = jet_input * jet_scale * jet_gain
+                end if    
+            end if
+            
+       
+            ! if (jet_gain >= 0.01) t(ix,iy,iz,e,1) = ffx
+  
+            return
+        end
+!-----------------------------------------------------------------------
+!> @brief Register user specified modules
+      subroutine frame_usr_register
+            implicit none
+      
+            include 'SIZE'
+            include 'FRAMELP'
+      !-----------------------------------------------------------------------
+      !     register modules
+            call chkpt_register
+            call tripl_register
+            call stat_register
+      
+            return
+            end subroutine
+      !======================================================================
+      !> @brief Initialise user specified modules
+            subroutine frame_usr_init
+            implicit none
+      
+            include 'SIZE'
+            include 'FRAMELP'
+            include 'SOLN'
+      !-----------------------------------------------------------------------
+      !     initialise modules
+            call chkpt_init
+            call tripl_init
+            call stat_init
+      
+            return
+            end subroutine
+      !======================================================================
+      !> @brief Finalise user specified modules
+            subroutine frame_usr_end
+            implicit none
+      
+            include 'SIZE'
+            include 'FRAMELP'
+      !-----------------------------------------------------------------------
+      !     finalise modules
+            call stat_end
+    
+            return
+            end subroutine
+      !======================================================================
+!-----------------------------------------------------------------------
+	subroutine control_LSMs(ravg)
+		implicit none
+		include 'SIZE'
+		include 'TOTAL'
+
+		integer icalld_mpc
+          	save    icalld_mpc
+          	data    icalld_mpc /0/
+
+		real atime_mpc,timel_mpc
+		save atime_mpc,timel_mpc
+
+		real p_loc(INTP_NMAX,ldim),uvw(INTP_NMAX,NARRAYS)
+          	common /LSMS/ p_loc,uvw
+
+		real u_optimal(100),jet_input
+		common /control_inputs/ u_optimal,jet_input
+
+		real ravg(lx1*ly1*lz1*lelt)
+		integer i,n,npart,ios,ctrl_idx
+
+		integer n_rom,n_mpc,n_mpc_rom,n_meas,n_meas_rom
+		real mpc_time_delay
+
+		! ALl the parametres related to MPC of LSM
+		mpc_time_delay = 1.0 ! Initial delay to start MPC control
+		n_rom = 10 ! # of LES time steps in one ROM steps
+		n_mpc = 500 ! # of LES time steps in one MPC horizon
+		n_mpc_rom = n_mpc/n_rom ! Time horizon for control problem in ROM time steps
+		n_meas = 100 ! New measurement frequency in LES time steps
+		n_meas_rom = n_meas/n_rom ! First how many control inputs to read 
+
+		n     = nx1*ny1*nz1*nelv
+
+		if ( nid .eq. 0 ) then
+                  npart = INTP_NMAX
+            else
+                  npart = 0
+            end if
+
+		if ( icalld_mpc .eq. 0 ) then
+                  timel_mpc  = time ! storing start time of the similation
+			call rzero(u_optimal,1)
+			icalld_mpc = 1
+		end if
+
+		if (time .ge. timel_mpc + mpc_time_delay .and. mod(istep,n_meas) .eq. 0) then
+			! Detect LSMS: Save <u> and u' using interp
+			call sub3(t(1,1,1,1,2),vx,ravg(1),n) ! u - u_mean
+			call detect_LSM(ravg(1),t(1,1,1,1,2),npart)
+			if ( nid .eq. 0) then
+				write(6,*) 'Writing new LSM data ...'
+			!   uvw_trans = transpose(uvw)
+				open(31, file = "LSM.txt", status = "replace")
+				write(31,'(A,1pe14.7)') '#time = ', time
+				write(31,'(A)')  
+     $                '#  <u>  u_prime '
+				do i = 1, INTP_NMAX
+					write(31, "(*(1x,e15.8))")uvw(i,:)
+				end do
+				close(31)
+
+				write(6,*) 'Solving QP program ...'
+				CALL EXECUTE_COMMAND_LINE("python MPC_of_LSM_LQT.py")
+				open(unit=10, file="u_optimal.txt", status="old", action="read", iostat=ios)
+				if (ios /= 0) then
+					print *, "Error opening file: ", "u_optimal.txt"
+					stop
+				end if
+				! Read the data into yint
+				write(6,*) 'Reading optimal control inputs ...'
+				do i = 1, n_mpc_rom
+					read(10, *, iostat=ios) u_optimal(i)
+					if (ios /= 0) then
+					print *, "Error reading data at line ", i
+					stop
+				end if
+				end do
+				! Close the file
+				close(10)
+			end if
+			call nekgsync
+		end if
+
+            call bcast(u_optimal,100)
+
+            ! Ensure ctrl_idx is valid
+            ctrl_idx = istep - int(istep / n_meas) * n_meas
+            ctrl_idx = max(1, int(ctrl_idx/n_rom)+1)
+            
+            ! Determine jet_input and write to file
+            if (u_optimal(ctrl_idx) .le. 0.0) then
+                  jet_input = 0.0
+            else
+                  jet_input = u_optimal(ctrl_idx)
+                  ! jet_input = 1.0
+            endif
+            ! call bcast(jet_input,1)
+
+            if (nid .eq. 0) write(6, *) "Control Index:", ctrl_idx
+            if (nid .eq. 0) write(6, *) "Jet Input:", jet_input
+            ! Append jet_input to the file
+            if (nid .eq. 1) write(99, *) jet_input
+
+		return 
+	end subroutine
+!-----------------------------------------------------------------------		
+            subroutine detect_LSM(u_mean,u_fluct,n)
+
+            !     Lagrangian particle advection
+                  implicit none
+                  include 'SIZE'
+                  include 'TOTAL'
+
+                  real u_mean(lx1*ly1*lz1*lelt),u_fluct(lx1*ly1*lz1*lelt)
+                  integer n
+                  call interp_v(n,u_mean,u_fluct) 
+                  
+            return
+            end
+          !----------------------------------------------------------------------
+            subroutine interp_v(n,u_mean,u_fluct)
+            !
+            !     evaluate velocity for list of points xyz
+            !
+                include 'SIZE'
+                include 'TOTAL'
+                
+                integer n_copy
+                real u_mean(lx1*ly1*lz1*lelt),u_fluct(lx1*ly1*lz1*lelt)
+    
+                real    rwk(INTP_NMAX,ldim+1,NARRAYS) ! r, s, t, dist2
+                integer iwk(INTP_NMAX,3,NARRAYS)      ! code, proc, el 
+                save    rwk, iwk
+
+                integer nint, intp_h(NARRAYS)
+                save    nint, intp_h
+    
+                real fwrk(lx1*ly1*lz1*lelt,NARRAYS), fpts(INTP_NMAX,NARRAYS)
+
+                real p_loc(INTP_NMAX,ldim), uvw(INTP_NMAX,NARRAYS)
+                common /LSMS/ p_loc, uvw
+    
+                integer icalld,e
+                save    icalld
+                data    icalld /0/
+
+                if (icalld.eq.0) then
+                    icalld = 1
+                    do i = 1, NARRAYS
+                        call interp_setup(intp_h(i),0.0,0,nelt)
+                    end do
+                endif
+                ! pack working array, must copy NARRAYS into fwrk
+                !Chage the 
+                n_copy = lx1*ly1*lz1*lelt
+                call copy(fwrk(1,1),u_mean,n_copy)
+                call copy(fwrk(1,2),u_fluct,n_copy)
+                
+                ! interpolate
+                do i = 1, NARRAYS
+                    call interp_nfld(fpts(1,i),fwrk(1,i),1,p_loc(1,1),p_loc(1,2),p_loc(1,3),n,
+     $                iwk(1,1,i),rwk(1,1,i),INTP_NMAX,.true.,intp_h(i))
+                    do j=1,INTP_NMAX
+                        uvw(j,i) = fpts(j,i)
+                    enddo
+                end do
+    
+            return
+            end
+          !-----------------------------------------------------------------------
+      subroutine user_stat_trnsv(lvel,dudx,dvdx,dwdx,vort,pres)
+            implicit none
+      
+            include 'SIZE'
+            include 'SOLN'
+            include 'INPUT'               ! if3d
+            include 'GEOM'
+      
+            ! argument list
+            real lvel(LX1,LY1,LZ1,LELT,3) ! velocity array
+            real dudx(LX1,LY1,LZ1,LELT,3) ! velocity derivatives; U
+            real dvdx(LX1,LY1,LZ1,LELT,3) ! V
+            real dwdx(LX1,LY1,LZ1,LELT,3) ! W
+            real vort(LX1,LY1,LZ1,LELT,3) ! vorticity
+            real pres(LX1,LY1,LZ1,LELT)   ! pressure
+            real pmeanl, obj_srfl
+      
+            ! local variables
+            integer itmp              ! dummy variable
+            integer il, jl            ! loop index
+            integer ifll              ! field number for object definition
+            real vrtmp(lx1*lz1)       ! work array for face
+            real vrtmp2(2)            ! work array
+            
+            ! functions
+            real vlsum
+      !-----------------------------------------------------------------------
+            ! Velocity transformation; simple copy
+            itmp = NX1*NY1*NZ1*NELV
+            call copy(lvel(1,1,1,1,1),VX,itmp)
+            call copy(lvel(1,1,1,1,2),VY,itmp)
+            call copy(lvel(1,1,1,1,3),VZ,itmp)
+      
+            ! Derivative transformation
+            ! No transformation
+            call gradm1(dudx(1,1,1,1,1),dudx(1,1,1,1,2),dudx(1,1,1,1,3),lvel(1,1,1,1,1))
+            call gradm1(dvdx(1,1,1,1,1),dvdx(1,1,1,1,2),dvdx(1,1,1,1,3),lvel(1,1,1,1,2))
+            call gradm1(dwdx(1,1,1,1,1),dwdx(1,1,1,1,2),dwdx(1,1,1,1,3),lvel(1,1,1,1,3))
+      
+            ! get vorticity
+            if (IF3D) then
+                  ! curlx
+                  call sub3(vort(1,1,1,1,1),dwdx(1,1,1,1,2),dvdx(1,1,1,1,3),itmp)
+                  ! curly
+                  call sub3(vort(1,1,1,1,2),dudx(1,1,1,1,3),dwdx(1,1,1,1,1),itmp)
+            endif
+            ! curlz
+            call sub3(vort(1,1,1,1,3),dvdx(1,1,1,1,1),dudx(1,1,1,1,2),itmp)
+      
+            ! normalise pressure
+            ! in this example I integrate pressure over all faces marked "W"
+            ifll = 1     ! I'm interested in velocity bc
+            call rzero(vrtmp2,2)  ! zero work array
+            obj_srfl = 0.0 ! initialise object surface
+            pmeanl = 0.0  ! initialise pressure mean
+            itmp = LX1*LZ1
+            do il=1,nelv   ! element loop
+                  do jl=1,2*ldim   ! face loop
+                  if (cbc(jl,il,ifll).eq.'W  ') then
+                        vrtmp2(1) = vrtmp2(1) + vlsum(area(1,1,jl,il),itmp)
+                        call ftovec(vrtmp,pres,il,jl,lx1,ly1,lz1)
+                        call col2(vrtmp,area(1,1,jl,il),itmp)
+                        vrtmp2(2) = vrtmp2(2) + vlsum(vrtmp,itmp)
+                  endif
+                  enddo
+            enddo
+            ! global communication
+            call gop(vrtmp2,vrtmp,'+  ',2)
+            ! missing error check vrtmp2(1) == 0
+            vrtmp2(2) = -vrtmp2(2)/vrtmp2(1)
+            ! remove mean pressure
+            itmp = NX1*NY1*NZ1*NELV
+            call cadd(pres,vrtmp2(2),itmp)
+            
+            return
+      end subroutine
+!=======================================================================
+      subroutine user_map2d_get(idir,ctrs,cell,lctrs1,lctrs2,nelsort,map_xm1,map_ym1,ierr)
+            implicit none
+      
+            include 'SIZE'
+            include 'INPUT'           ! [XYZ]C
+            include 'GEOM'            ! [XYZ]M1
+      
+      !     argument list
+            integer idir
+            integer lctrs1,lctrs2
+            real ctrs(lctrs1,lctrs2)  ! 2D element centres  and diagonals 
+            integer cell(lctrs2)      ! local element numberring
+            integer nelsort           ! number of local 3D elements to sort
+            real map_xm1(lx1,lz1,lelt), map_ym1(lx1,lz1,lelt)
+            integer ierr              ! error flag
+      
+      !     local variables
+            integer ntot              ! tmp array size for copying
+            integer el ,il ,jl        ! loop indexes
+            integer nvert             ! vertex number
+            real rnvert               ! 1/nvert
+            real xmid,ymid            ! 2D element centre
+            real xmin,xmax,ymin,ymax  ! to get approximate element diagonal
+            integer ifc               ! face number
+      
+      !     dummy arrays
+            real xcoord(8,LELT), ycoord(8,LELT) ! tmp vertex coordinates
+      
+      #ifdef DEBUG
+      !     for testing
+            character*3 str1, str2
+            integer iunit, ierrl
+            ! call number
+            integer icalldl
+            save icalldl
+            data icalldl /0/
+      #endif
+      
+      !-----------------------------------------------------------------------
+      !     initial error flag
+            ierr = 0
+      !     set important parameters
+      !     uniform direction; should be taken as input parameter
+      !     x-> 1, y-> 2, z-> 3
+            idir = 3
+            
+      !     get element midpoints
+      !     vertex number
+            nvert = 2**NDIM
+            rnvert= 1.0/real(nvert)
+      
+      !     eliminate uniform direction
+            ntot = 8*NELV
+            if (idir.EQ.1) then  ! uniform X
+                  call copy(xcoord,YC,ntot) ! copy y
+                  call copy(ycoord,ZC,ntot) ! copy z
+            elseif (idir.EQ.2) then  ! uniform Y
+                  call copy(xcoord,XC,ntot) ! copy x
+                  call copy(ycoord,ZC,ntot) ! copy z
+            elseif (idir.EQ.3) then  ! uniform Z
+                  call copy(xcoord,XC,ntot) ! copy x
+                  call copy(ycoord,YC,ntot) ! copy y
+            endif
+      
+      !     set initial number of elements to sort
+            nelsort = 0
+            call izero(cell,NELT)
+      
+      !     for every element
+            do el=1,NELV
+      !     element centre
+                  xmid = xcoord(1,el)
+                  ymid = ycoord(1,el)
+      !     element diagonal
+                  xmin = xmid
+                  xmax = xmid
+                  ymin = ymid
+                  ymax = ymid
+                  do il=2,nvert
+                  xmid=xmid+xcoord(il,el)
+                  ymid=ymid+ycoord(il,el)
+                  xmin = min(xmin,xcoord(il,el))
+                  xmax = max(xmax,xcoord(il,el))
+                  ymin = min(ymin,ycoord(il,el))
+                  ymax = max(ymax,ycoord(il,el))
+                  enddo
+                  xmid = xmid*rnvert
+                  ymid = ymid*rnvert
+      
+      !     count elements to sort
+                  nelsort = nelsort + 1
+      !     2D position
+      !     in general this coud involve some curvilinear transform
+                  ctrs(1,nelsort)=xmid
+                  ctrs(2,nelsort)=ymid
+      !     reference distance
+                  ctrs(3,nelsort)=sqrt((xmax-xmin)**2 + (ymax-ymin)**2)
+                  if (ctrs(3,nelsort).eq.0.0) then
+                        ierr = 1
+                        return
+                  endif
+      !     element index
+                  cell(nelsort) = el
+            enddo
+      
+      !     provide 2D mesh
+      !     in general this coud involve some curvilinear transform
+            if (idir.EQ.1) then  ! uniform X
+                  ifc = 4
+                  do el=1,NELV
+                  call ftovec(map_xm1(1,1,el),ym1,el,ifc,nx1,ny1,nz1)
+                  call ftovec(map_ym1(1,1,el),zm1,el,ifc,nx1,ny1,nz1)
+                  enddo
+            elseif (idir.eq.2) then  ! uniform y
+                  ifc = 1
+                  do el=1,nelv
+                  call ftovec(map_xm1(1,1,el),xm1,el,ifc,nx1,ny1,nz1)
+                  call ftovec(map_ym1(1,1,el),zm1,el,ifc,nx1,ny1,nz1)
+                  enddo
+            elseif (idir.eq.3) then  ! uniform z
+                  ifc = 5
+                  do el=1,nelv
+                  call ftovec(map_xm1(1,1,el),xm1,el,ifc,nx1,ny1,nz1)
+                  call ftovec(map_ym1(1,1,el),ym1,el,ifc,nx1,ny1,nz1)
+                  enddo
+            endif
+      
+      #ifdef DEBUG
+      !     testing
+            ! to output refinement
+            icalldl = icalldl+1
+            call io_file_freeid(iunit, ierrl)
+            write(str1,'(i3.3)') NID
+            write(str2,'(i3.3)') icalldl
+            open(unit=iunit,file='map2d_usr.txt'//str1//'i'//str2)
+            
+            write(iunit,*) idir, NELV, nelsort
+            write(iunit,*) 'Centre coordinates and cells'
+            do el=1,nelsort
+                  write(iunit,*) el, ctrs(:,el), cell(el)
+            enddo
+            write(iunit,*) 'GLL coordinates'
+            do el=1,nelsort
+                  write(iunit,*) 'Element ', el
+                  write(iunit,*) 'XM1'
+                  do il=1,nz1
+                  write(iunit,*) (map_xm1(jl,il,el),jl=1,nx1)
+                  enddo
+                  write(iunit,*) 'YM1'
+                  do il=1,nz1
+                  write(iunit,*) (map_ym1(jl,il,el),jl=1,nx1)
+                  enddo
+            enddo
+            close(iunit)
+      #endif
+      
+            return
+            end subroutine
+      !=======================================================================
+!-----------------------------------------------------------------------
+      subroutine set_obj  ! define objects for surface integrals
+
+      include 'SIZE'
+      include 'TOTAL'
+
+      integer e,f,eg
+
+      nobj = 1
+      iobj = 0
+      do ii=nhis+1,nhis+nobj
+         iobj = iobj+1
+         hcode(10,ii) = 'I'
+         hcode( 1,ii) = 'F'
+         hcode( 2,ii) = 'F'
+         hcode( 3,ii) = 'F'
+         lochis(1,ii) = iobj
+      enddo
+      nhis = nhis + nobj
+
+      if (maxobj.lt.nobj) call exitti('increase maxobj in SIZE$',nobj)
+
+      nxyz  = nx1*ny1*nz1
+      nface = 2*ndim
+
+      do e=1,nelv
+      do f=1,nface
+         if (cbc(f,e,1).eq.'W  ') then
+            iobj  = 1
+            if (iobj.gt.0) then
+               nmember(iobj) = nmember(iobj) + 1
+               mem = nmember(iobj)
+               eg  = lglel(e)
+               object(iobj,mem,1) = eg
+               object(iobj,mem,2) = f
+
+            endif
+         endif
+      enddo
+      enddo
+
+      return
+      end
+!-------------------------------------------
